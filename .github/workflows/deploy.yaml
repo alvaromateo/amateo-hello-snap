@@ -1,0 +1,68 @@
+name: Deploy
+
+on:
+  push:
+    branches:
+      - main
+      - staging
+      - ps7-deployment
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: 'Environment (Production or Staging)'
+        required: true
+        type: choice
+        options:
+          - Production
+          - Staging
+      force_charm_build:
+        description: 'True to force the charm build'
+        required: true
+        type: boolean
+
+permissions:
+  contents: read
+
+jobs:
+  setenv:
+    runs-on: ubuntu-latest
+    outputs:
+      environment: ${{ steps.setup-env.outputs.environment }}
+    steps:
+      - name: Setup environment
+        id: setup-env
+        run: |
+          env_from_input="${{ github.event.inputs.environment }}"
+          env_from_branch=""
+          if [ "${{ github.ref }}" = "refs/heads/main" ]; then
+            env_from_branch="Production"
+          fi;
+          environment="${env_from_input:-${env_from_branch:-Staging}}"
+          echo "environment=$environment" >> $GITHUB_OUTPUT
+          echo "force_charm_build=${{ github.event.inputs.force_charm_build || false }}"
+
+  # We need to output here the environment variables because the "environment" can not
+  # be set in a reusable job (those with key "uses"), so we would not be able to retrieve
+  # any environment-dependent variable in there
+  setup:
+    runs-on: ubuntu-latest
+    needs: setenv
+    environment: ${{ needs.setenv.outputs.environment }}
+    outputs:
+      environment_url: ${{ steps.setup-vars.outputs.environment_url }}
+      charm_name: ${{ steps.setup-vars.outputs.charm_name }}
+      channel: ${{ steps.setup-vars.outputs.channel }}
+      terraform_dir: ${{ steps.setup-vars.outputs.terraform_dir }}
+    steps:
+      - name: Setup vars
+        id: setup-vars
+        run: |
+          if [ "${{ needs.setenv.outputs.environment }}" = "Production" ]; then
+            echo "terraform_dir=terraform/ps7/k8s-prod-marketplace" >> $GITHUB_OUTPUT
+          else
+            echo "terraform_dir=terraform/ps7/k8s-stg-marketplace" >> $GITHUB_OUTPUT
+          fi;
+
+          echo "environment_url=${{ vars.ENVIRONMENT_URL }}" >> $GITHUB_OUTPUT
+          echo "charm_name=${{ vars.CHARM_NAME }}" >> $GITHUB_OUTPUT
+          echo "channel=${{ vars.CHANNEL }}" >> $GITHUB_OUTPUT
